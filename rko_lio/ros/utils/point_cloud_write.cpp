@@ -22,21 +22,21 @@
 // SOFTWARE.
 
 #include "point_cloud_write.hpp"
+#include <boost/make_shared.hpp>
 #include <regex>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <sensor_msgs/msg/point_field.hpp>
-#include <sensor_msgs/point_cloud2_iterator.hpp>
+#include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/PointField.h>
+#include <sensor_msgs/point_cloud2_iterator.h>
 
 namespace {
-using PointCloud2 = sensor_msgs::msg::PointCloud2;
-using PointField = sensor_msgs::msg::PointField;
-using Header = std_msgs::msg::Header;
-using StampType = builtin_interfaces::msg::Time;
+using PointCloud2 = sensor_msgs::PointCloud2;
+using PointField = sensor_msgs::PointField;
+using Header = std_msgs::Header;
 
 std::string FixFrameId(const std::string& frame_id) { return std::regex_replace(frame_id, std::regex("^/"), ""); }
 
-PointCloud2::UniquePtr create_point_cloud2_msg(const size_t n_points, const Header& header, bool timestamp = false) {
-  PointCloud2::UniquePtr cloud_msg = std::make_unique<PointCloud2>();
+sensor_msgs::PointCloud2Ptr create_point_cloud2_msg(const size_t n_points, const Header& header, bool timestamp = false) {
+  sensor_msgs::PointCloud2Ptr cloud_msg = boost::make_shared<sensor_msgs::PointCloud2>();
   sensor_msgs::PointCloud2Modifier modifier(*cloud_msg);
   cloud_msg->header = header;
   cloud_msg->header.frame_id = FixFrameId(cloud_msg->header.frame_id);
@@ -47,12 +47,10 @@ PointCloud2::UniquePtr create_point_cloud2_msg(const size_t n_points, const Head
   offset = addPointField(*cloud_msg, "z", 1, PointField::FLOAT32, offset);
   offset += sizeOfPointField(PointField::FLOAT32);
   if (timestamp) {
-    // assuming timestamp on a velodyne fashion for now (between 0.0 and 1.0)
     offset = addPointField(*cloud_msg, "time", 1, PointField::FLOAT64, offset);
     offset += sizeOfPointField(PointField::FLOAT64);
   }
 
-  // Resize the point cloud accordingly
   cloud_msg->point_step = offset;
   cloud_msg->row_step = cloud_msg->width * cloud_msg->point_step;
   cloud_msg->data.resize(static_cast<size_t>(cloud_msg->height) * cloud_msg->row_step);
@@ -74,8 +72,8 @@ void fill_point_cloud2_xyz(const std::vector<Eigen::Vector3d>& points, PointClou
 } // namespace
 namespace rko_lio::ros::utils {
 
-PointCloud2::UniquePtr eigen_to_point_cloud2(const std::vector<Eigen::Vector3d>& points, const Header& header) {
-  PointCloud2::UniquePtr msg = create_point_cloud2_msg(points.size(), header);
+sensor_msgs::PointCloud2Ptr eigen_to_point_cloud2(const std::vector<Eigen::Vector3d>& points, const Header& header) {
+  sensor_msgs::PointCloud2Ptr msg = create_point_cloud2_msg(points.size(), header);
   fill_point_cloud2_xyz(points, *msg);
   return msg;
 }

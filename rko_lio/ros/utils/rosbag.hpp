@@ -21,55 +21,63 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// copied and modified from kinematic icp
 #pragma once
 // tf2
-#include <tf2/time.hpp>
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/transform_broadcaster.h>
 // ROS
-#include <rclcpp/rclcpp.hpp>
-#include <rclcpp/serialization.hpp>
-// rosbag headers
-#include <rosbag2_cpp/reader.hpp>
-#include <rosbag2_storage/serialized_bag_message.hpp>
+#include <ros/ros.h>
+#include <rosbag/bag.h>
+#include <rosbag/view.h>
+#include <sensor_msgs/Imu.h>
+#include <sensor_msgs/PointCloud2.h>
+#include <tf2_msgs/TFMessage.h>
 // stl
 #include <chrono>
 #include <cstddef>
 #include <memory>
 #include <queue>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace rko_lio::ros::utils {
+
+struct BagMessage {
+  std::string topic_name;
+  ::ros::Time stamp;
+  std::variant<sensor_msgs::Imu::ConstPtr, sensor_msgs::PointCloud2::ConstPtr> data;
+};
+
 class BufferableBag {
 public:
-  // Wrapper node to process the transforamtions present in the bagfile
   struct TFBridge {
-    explicit TFBridge(rclcpp::Node::SharedPtr node);
-    void ProcessTFMessage(std::shared_ptr<rosbag2_storage::SerializedBagMessage> msg) const;
+    explicit TFBridge(::ros::NodeHandle& nh);
+    void ProcessTFMessage(const tf2_msgs::TFMessage& tf_message, const std::string& topic_name) const;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
     std::unique_ptr<tf2_ros::StaticTransformBroadcaster> tf_static_broadcaster;
-    rclcpp::Serialization<tf2_msgs::msg::TFMessage> serializer;
   };
 
   BufferableBag(const std::string& bag_path,
                 const std::shared_ptr<TFBridge> tf_bridge,
                 const std::vector<std::string>& topics,
-                const tf2::Duration seek = tf2::durationFromSec(0.0),
+                const ::ros::Duration seek = ::ros::Duration(0.0),
                 const std::chrono::seconds buffer_size = std::chrono::seconds(1));
 
   void publish_tf_static(const std::string& bag_path);
   size_t message_count() const;
   void BufferMessages();
-  rosbag2_storage::SerializedBagMessage PopNextMessage();
+  BagMessage PopNextMessage();
   bool finished() const;
-  void close() const;
+  void close();
 
 private:
   std::shared_ptr<TFBridge> tf_bridge_;
-  std::unique_ptr<rosbag2_cpp::Reader> bag_reader_;
-  std::queue<rosbag2_storage::SerializedBagMessage> buffer_;
+  std::unique_ptr<rosbag::Bag> bag_;
+  std::unique_ptr<rosbag::View> view_;
+  rosbag::View::iterator view_it_;
+  bool view_exhausted_ = false;
+  std::queue<BagMessage> buffer_;
   std::chrono::seconds buffer_size_;
   std::vector<std::string> topics_;
   size_t message_count_{0};

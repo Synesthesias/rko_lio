@@ -27,23 +27,19 @@
 #include "rko_lio/core/profiler.hpp"
 #include "rko_lio/ros/utils/utils.hpp"
 // ros
-#include <nav_msgs/msg/odometry.hpp>
-#include <sensor_msgs/msg/imu.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <nav_msgs/Odometry.h>
+#include <sensor_msgs/Imu.h>
+#include <sensor_msgs/PointCloud2.h>
 // other
 #include <stdexcept>
 
 namespace rko_lio::ros {
 
-// Sequential variant of the LIO node: IMU and LiDAR are processed inline on
-// the rclcpp executor thread. The IMU callback feeds add_imu_measurement and
-// publishes IMU-rate odometry; the LiDAR callback runs register_scan inline
-// and publishes the lidar-rate odometry, deskewed scan, and TF (by default).
 class OnlineImuRateNode : public BaseNode {
 public:
-  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_at_imu_rate_publisher;
-  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
-  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr lidar_sub;
+  ::ros::Publisher odom_at_imu_rate_publisher;
+  ::ros::Subscriber imu_sub;
+  ::ros::Subscriber lidar_sub;
   core::Timer timer;
 
   std::string odom_at_imu_rate_topic = "rko_lio/odom_at_imu_rate";
@@ -54,35 +50,26 @@ public:
   OnlineImuRateNode& operator=(const OnlineImuRateNode&) = delete;
   OnlineImuRateNode& operator=(OnlineImuRateNode&&) = delete;
 
-  explicit OnlineImuRateNode(const rclcpp::NodeOptions& options)
-      : BaseNode("rko_lio_online_imu_rate_node", options), timer("RKO LIO Online IMU-rate Node") {
-    odom_at_imu_rate_topic = node->declare_parameter<std::string>("seq.odom_at_imu_rate_topic", odom_at_imu_rate_topic);
-    tf_at_imu_rate = node->declare_parameter<bool>("seq.tf_at_imu_rate", tf_at_imu_rate);
+  OnlineImuRateNode()
+      : BaseNode("rko_lio_online_imu_rate_node"), timer("RKO LIO Online IMU-rate Node") {
+    pnh_.param<std::string>("seq/odom_at_imu_rate_topic", odom_at_imu_rate_topic, odom_at_imu_rate_topic);
+    pnh_.param<bool>("seq/tf_at_imu_rate", tf_at_imu_rate, tf_at_imu_rate);
 
-    const rclcpp::QoS publisher_qos((rclcpp::SystemDefaultsQoS().keep_last(1).durability_volatile()));
-    odom_at_imu_rate_publisher =
-        node->create_publisher<nav_msgs::msg::Odometry>(odom_at_imu_rate_topic, publisher_qos);
+    odom_at_imu_rate_publisher = nh_.advertise<nav_msgs::Odometry>(odom_at_imu_rate_topic, 1);
 
-    RCLCPP_INFO_STREAM(node->get_logger(),
-                       "OnlineImuRateNode publishing IMU-rate odometry to "
-                           << odom_at_imu_rate_topic << ", TF rate: " << (tf_at_imu_rate ? "imu" : "lidar"));
+    ROS_INFO_STREAM("OnlineImuRateNode publishing IMU-rate odometry to "
+                        << odom_at_imu_rate_topic << ", TF rate: " << (tf_at_imu_rate ? "imu" : "lidar"));
 
-    const auto qos_imu = rclcpp::SensorDataQoS().keep_last(100);
-    const auto qos_lidar = rclcpp::SensorDataQoS().keep_last(10);
+    imu_sub = nh_.subscribe<sensor_msgs::Imu>(
+        imu_topic, 100,
+        [this](const sensor_msgs::Imu::ConstPtr& imu_msg) { imu_callback(imu_msg); });
 
-    imu_sub = node->create_subscription<sensor_msgs::msg::Imu>(
-        imu_topic, qos_imu, [this](const sensor_msgs::msg::Imu::ConstSharedPtr& imu_msg) { imu_callback(imu_msg); });
-
-    lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
-        lidar_topic, qos_lidar,
-        [this](const sensor_msgs::msg::PointCloud2::ConstSharedPtr& lidar_msg) { lidar_callback(lidar_msg); });
+    lidar_sub = nh_.subscribe<sensor_msgs::PointCloud2>(
+        lidar_topic, 10,
+        [this](const sensor_msgs::PointCloud2::ConstPtr& lidar_msg) { lidar_callback(lidar_msg); });
   }
 
-  rclcpp::node_interfaces::NodeBaseInterface::SharedPtr get_node_base_interface() {
-    return node->get_node_base_interface();
-  }
-
-  void imu_callback(const sensor_msgs::msg::Imu::ConstSharedPtr& imu_msg) {
+  void imu_callback(const sensor_msgs::Imu::ConstPtr& imu_msg) {
     if (!ensure_frame_and_extrinsics(imu_frame, imu_msg->header.frame_id, "IMU")) {
       return;
     }
@@ -91,9 +78,6 @@ public:
     lio->add_imu_measurement(extrinsic_imu2base, imu_data);
 
     if (!(lio->imu_state.time > core::Nsec{0})) {
-      // Skip publishing before the first successful registration: until then,
-      // imu_state has not been seeded from a real lidar pose. add_imu_measurement
-      // leaves imu_state.time at zero in that pre-init phase.
       return;
     }
     publish_odometry(lio->imu_state, odom_at_imu_rate_publisher);
@@ -102,7 +86,7 @@ public:
     }
   }
 
-  void lidar_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& lidar_msg) {
+  void lidar_callback(const sensor_msgs::PointCloud2::ConstPtr& lidar_msg) {
     if (!ensure_frame_and_extrinsics(lidar_frame, lidar_msg->header.frame_id, "LiDAR")) {
       return;
     }
@@ -111,19 +95,21 @@ public:
       const auto [timestamps, scan] = process_lidar_msg(lidar_msg);
       const core::Vector3dVector deskewed_frame = register_scan_locked(scan, timestamps.times);
       if (deskewed_frame.empty()) {
-        // first frame is skipped and an empty frame is returned. nothing to publish.
         return;
       }
       publish_lidar_outputs(deskewed_frame);
       publish_tf(lio->lidar_state);
     } catch (const std::invalid_argument& ex) {
-      RCLCPP_ERROR_STREAM(node->get_logger(), "Encountered error, dropping frame. Error: " << ex.what());
+      ROS_ERROR_STREAM("Encountered error, dropping frame. Error: " << ex.what());
     }
   }
-
 };
 
 } // namespace rko_lio::ros
 
-#include <rclcpp_components/register_node_macro.hpp>
-RCLCPP_COMPONENTS_REGISTER_NODE(rko_lio::ros::OnlineImuRateNode)
+int main(int argc, char** argv) {
+  ::ros::init(argc, argv, "rko_lio_online_imu_rate_node");
+  rko_lio::ros::OnlineImuRateNode node;
+  ::ros::spin();
+  return 0;
+}

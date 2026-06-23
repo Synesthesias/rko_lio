@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-cmake_minimum_required(VERSION 3.22.0)
+cmake_minimum_required(VERSION 3.16)
 project(rko_lio LANGUAGES CXX C)
 
 if(POLICY CMP0135)
@@ -29,84 +29,85 @@ endif()
 
 option(RKO_LIO_BUILD_ROS "Build the ROS wrapper for RKO LIO" ON)
 option(RKO_LIO_BUILD_TESTS "Build core C++ tests" OFF)
-option(RKO_LIO_FETCH_CONTENT_DEPS
-       "Fetch dependencies via FetchContent instead of using find_package" OFF)
 
-include(cmake/dependencies.cmake)
 include(cmake/compat_target_sources.cmake)
 
+# Find catkin and ROS dependencies first (before any FetchContent)
+if(RKO_LIO_BUILD_ROS)
+  find_package(catkin REQUIRED COMPONENTS
+    roscpp
+    std_msgs
+    tf2
+    tf2_ros
+    sensor_msgs
+    nav_msgs
+    geometry_msgs
+    rosbag
+    tf2_msgs
+  )
+
+  catkin_package(
+    INCLUDE_DIRS rko_lio
+    LIBRARIES rko_lio.core rko_lio.ros rko_lio.ros.utils
+    CATKIN_DEPENDS roscpp std_msgs tf2 tf2_ros sensor_msgs nav_msgs geometry_msgs rosbag tf2_msgs
+    DEPENDS Eigen3
+  )
+
+  include_directories(${catkin_INCLUDE_DIRS})
+endif()
+
+# Non-ROS dependencies: find system packages first, FetchContent as fallback
 find_package(Eigen3 3.4 REQUIRED CONFIG)
-find_package(Sophus REQUIRED CONFIG)
 find_package(TBB REQUIRED CONFIG)
-find_package(tsl-robin-map REQUIRED CONFIG)
+
+# Sophus: try system/ros paths, then FetchContent
+find_package(Sophus QUIET CONFIG)
+if(NOT Sophus_FOUND)
+  message(STATUS "Sophus not found via find_package, using FetchContent")
+  include(FetchContent)
+  set(SOPHUS_USE_BASIC_LOGGING ON CACHE BOOL "")
+  set(BUILD_SOPHUS_TESTS OFF CACHE BOOL "")
+  set(BUILD_SOPHUS_EXAMPLES OFF CACHE BOOL "")
+  set(BUILD_PYTHON_BINDINGS OFF CACHE BOOL "")
+  if(CMAKE_VERSION VERSION_LESS "3.24")
+    set(SOPHUS_VERSION "1.22.10")
+  else()
+    set(SOPHUS_VERSION "1.24.6")
+  endif()
+  FetchContent_Declare(
+    Sophus
+    URL https://github.com/strasdat/Sophus/archive/refs/tags/${SOPHUS_VERSION}.tar.gz)
+  FetchContent_MakeAvailable(Sophus)
+endif()
+
+# tsl-robin-map: try system, then FetchContent
+find_package(tsl-robin-map QUIET CONFIG)
+if(NOT tsl-robin-map_FOUND)
+  message(STATUS "tsl-robin-map not found via find_package, using FetchContent")
+  if(NOT COMMAND FetchContent_Declare)
+    include(FetchContent)
+  endif()
+  FetchContent_Declare(
+    tsl-robin-map
+    URL https://github.com/Tessil/robin-map/archive/refs/tags/v1.4.0.tar.gz)
+  FetchContent_MakeAvailable(tsl-robin-map)
+endif()
 
 add_subdirectory(rko_lio/core)
 
-if(NOT RKO_LIO_BUILD_ROS)
-  message(STATUS "RKO_LIO_BUILD_ROS is OFF. Skipping ROS Build.")
-else()
+if(RKO_LIO_BUILD_ROS)
   message(STATUS "Building RKO_LIO ROS wrapper.")
 
   find_package(nlohmann_json REQUIRED CONFIG)
 
-  find_package(ament_cmake REQUIRED)
-  find_package(rclcpp REQUIRED CONFIG)
-  find_package(std_msgs REQUIRED CONFIG)
-  find_package(tf2 REQUIRED CONFIG)
-  find_package(tf2_ros REQUIRED CONFIG)
-  find_package(sensor_msgs REQUIRED CONFIG)
-  find_package(nav_msgs REQUIRED CONFIG)
-  find_package(geometry_msgs REQUIRED CONFIG)
-  find_package(rosbag2_cpp REQUIRED CONFIG)
-  find_package(rosbag2_storage REQUIRED CONFIG)
-  find_package(rclcpp_components REQUIRED CONFIG)
-
   add_subdirectory(rko_lio/ros)
 
-  # ament macros cannot be in a CMake subdirectory, even rclcpp
-  rclcpp_components_register_node(
-    online_node_component
-    PLUGIN
-    "rko_lio::ros::OnlineNode"
-    EXECUTABLE
-    online_node)
+  install(
+    TARGETS online_node online_imu_rate_node offline_node
+    RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+  )
 
-  rclcpp_components_register_node(
-    online_imu_rate_node_component
-    PLUGIN
-    "rko_lio::ros::OnlineImuRateNode"
-    EXECUTABLE
-    online_imu_rate_node)
-
-  if(NOT RKO_LIO_FETCH_CONTENT_DEPS AND CMAKE_VERSION VERSION_GREATER_EQUAL "3.23")
-    install(
-      TARGETS rko_lio.core rko_lio.ros rko_lio.ros.utils
-      EXPORT rko_lioTargets
-      FILE_SET HEADERS)
-
-    ament_export_targets(rko_lioTargets HAS_LIBRARY_TARGET)
-    ament_export_dependencies(
-      Eigen3
-      Sophus
-      tsl-robin-map
-      rclcpp
-      std_msgs
-      tf2
-      tf2_ros
-      sensor_msgs
-      nav_msgs
-      geometry_msgs
-      rosbag2_cpp
-      rosbag2_storage)
-  endif()
-
-  install(TARGETS online_node_component online_imu_rate_node_component offline_node
-          LIBRARY DESTINATION lib
-          RUNTIME DESTINATION lib/${PROJECT_NAME})
-
-  install(DIRECTORY config launch DESTINATION share/rko_lio)
-
-  ament_package()
+  install(DIRECTORY config launch DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
 endif()
 
 if(RKO_LIO_BUILD_TESTS)

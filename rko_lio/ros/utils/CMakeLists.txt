@@ -38,16 +38,7 @@ compat_target_sources(
   BASE_DIRS ../../..)
 target_link_libraries(
   rko_lio.ros.utils
-  PUBLIC # ros deps
-         ${sensor_msgs_TARGETS}
-         rclcpp::rclcpp
-         rosbag2_cpp::rosbag2_cpp
-         rosbag2_storage::rosbag2_storage
-         sensor_msgs::sensor_msgs_library
-         tf2::tf2
-         tf2_ros::static_transform_broadcaster_node
-         tf2_ros::tf2_ros
-         # ros deps end
+  PUBLIC ${catkin_LIBRARIES}
          Sophus::Sophus
          Eigen3::Eigen)
 set_target_properties(rko_lio.ros.utils PROPERTIES POSITION_INDEPENDENT_CODE ON

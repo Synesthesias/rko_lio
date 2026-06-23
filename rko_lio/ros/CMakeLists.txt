@@ -40,17 +40,7 @@ target_link_libraries(
   rko_lio.ros
   PRIVATE nlohmann_json::nlohmann_json
   PUBLIC rko_lio::ros::utils
-         # ros deps
-         ${geometry_msgs_TARGETS}
-         ${nav_msgs_TARGETS}
-         ${sensor_msgs_TARGETS}
-         ${std_msgs_TARGETS}
-         rclcpp::rclcpp
-         sensor_msgs::sensor_msgs_library
-         tf2::tf2
-         tf2_ros::static_transform_broadcaster_node
-         tf2_ros::tf2_ros
-         # ros deps end
+         ${catkin_LIBRARIES}
          rko_lio::core
          Sophus::Sophus
          Eigen3::Eigen)
@@ -63,18 +53,10 @@ add_executable(offline_node offline_node.cpp)
 target_link_libraries(offline_node PRIVATE rko_lio::ros)
 set_target_properties(offline_node PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# component: online_node_component
-add_library(online_node_component SHARED online_node.cpp)
-target_link_libraries(
-  online_node_component
-  PRIVATE rko_lio::ros
-          # ros deps
-          rclcpp_components::component rclcpp_components::component_manager)
+# executable: online_node
+add_executable(online_node online_node.cpp)
+target_link_libraries(online_node PRIVATE rko_lio::ros)
 
-# component: online_imu_rate_node_component
-add_library(online_imu_rate_node_component SHARED online_imu_rate_node.cpp)
-target_link_libraries(
-  online_imu_rate_node_component
-  PRIVATE rko_lio::ros
-          # ros deps
-          rclcpp_components::component rclcpp_components::component_manager)
+# executable: online_imu_rate_node
+add_executable(online_imu_rate_node online_imu_rate_node.cpp)
+target_link_libraries(online_imu_rate_node PRIVATE rko_lio::ros)

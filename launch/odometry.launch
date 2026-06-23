@@ -1,0 +1,264 @@
+<!--
+  MIT License
+  Copyright (c) 2025 Meher V.R. Malladi.
+  ROS1 launch file for rko_lio odometry (ported from odometry.launch.py).
+-->
+<launch>
+  <!-- ========== Mode selection ========== -->
+  <arg name="mode" default="online"
+       doc="Launch mode: 'online' (subscribe to live topics) or 'offline' (drain a rosbag at full speed)"/>
+  <arg name="odom_at_imu_rate" default="false"
+       doc="When true and mode:=online, launch the sequential variant with IMU-rate odometry"/>
+
+  <!-- ========== Required topics/frames (no sensible default) ========== -->
+  <arg name="imu_topic" default=""
+       doc="IMU input topic (required)"/>
+  <arg name="lidar_topic" default=""
+       doc="LiDAR pointcloud topic (required)"/>
+  <arg name="base_frame" default=""
+       doc="Robot base frame for odometry estimation (required)"/>
+
+  <!-- ========== Optional topics/frames ========== -->
+  <arg name="imu_frame" default=""
+       doc="IMU frame; leave empty to use message frame_id"/>
+  <arg name="lidar_frame" default=""
+       doc="LiDAR frame; leave empty to use message frame_id"/>
+  <arg name="odom_frame" default="odom"
+       doc="Odom frame id for TF"/>
+  <arg name="odom_topic" default="rko_lio/odom"
+       doc="Odometry output topic"/>
+  <arg name="invert_odom_tf" default="false"
+       doc="Invert odometry TF so base_frame is parent of odom_frame"/>
+
+  <!-- ========== Map publishing ========== -->
+  <arg name="publish_local_map" default="false"
+       doc="Publish the local map"/>
+  <arg name="map_topic" default="rko_lio/local_map"
+       doc="Local map topic"/>
+  <arg name="publish_map_after" default="1.0"
+       doc="Seconds between local map publications"/>
+
+  <!-- ========== Additional outputs ========== -->
+  <arg name="publish_lidar_acceleration" default="false"
+       doc="Publish base_frame linear acceleration from lidar registration"/>
+  <arg name="publish_deskewed_scan" default="false"
+       doc="Publish deskewed scan for visualization"/>
+  <arg name="deskewed_scan_topic" default="rko_lio/frame"
+       doc="Deskewed scan topic"/>
+
+  <!-- ========== LIO core parameters ========== -->
+  <arg name="deskew" default="true"
+       doc="Deskew point cloud before registration"/>
+  <arg name="voxel_size" default="1.0"
+       doc="Voxel size for local map (meters)"/>
+  <arg name="max_points_per_voxel" default="20"
+       doc="Max points per voxel"/>
+  <arg name="max_range" default="100.0"
+       doc="Max valid LiDAR range (meters)"/>
+  <arg name="min_range" default="1.0"
+       doc="Min valid LiDAR range (meters)"/>
+  <arg name="max_correspondence_distance" default="0.5"
+       doc="ICP correspondence distance threshold (meters)"/>
+  <arg name="convergence_criterion" default="0.00001"
+       doc="ICP optimization stopping condition"/>
+  <arg name="max_num_threads" default="0"
+       doc="Threads for ICP data association (0 = auto)"/>
+  <arg name="max_iterations" default="100"
+       doc="Max ICP iterations"/>
+  <arg name="max_expected_jerk" default="3.0"
+       doc="Max expected jerk (m/s^3)"/>
+  <arg name="double_downsample" default="true"
+       doc="Double downsample input cloud before registration"/>
+  <arg name="min_beta" default="200"
+       doc="Minimum orientation regularisation scale for ICP"/>
+  <arg name="initialization_phase" default="false"
+       doc="Use first two frames IMU data to init bias/orientation (system must start at rest)"/>
+
+  <!-- ========== Lidar per-point timestamp parameters ========== -->
+  <arg name="lidar_timestamps/multiplier_to_seconds" default="0.0"
+       doc="Multiplier to convert per-point timestamps to seconds (0.0 = auto-detect)"/>
+  <arg name="lidar_timestamps/force_absolute" default="false"
+       doc="Force treat per-point timestamps as absolute wall-clock times"/>
+  <arg name="lidar_timestamps/force_relative" default="false"
+       doc="Force treat per-point timestamps as offsets from message header time"/>
+
+  <!-- ========== Threaded (async) node parameters ========== -->
+  <arg name="async/max_lidar_buffer_size" default="50"
+       doc="Max lidar frames buffered before dropping (threaded nodes only)"/>
+
+  <!-- ========== Sequential (IMU-rate) node parameters ========== -->
+  <arg name="seq/odom_at_imu_rate_topic" default="rko_lio/odom_at_imu_rate"
+       doc="Topic for IMU-rate odometry"/>
+  <arg name="seq/tf_at_imu_rate" default="false"
+       doc="Publish base->odom TF at IMU rate"/>
+
+  <!-- ========== Results dumping ========== -->
+  <arg name="dump_results" default="false"
+       doc="Dump odometry config and trajectory on exit"/>
+  <arg name="results_dir" default="results"
+       doc="Folder for dumping results"/>
+  <arg name="run_name" default="rko_lio_odometry_run"
+       doc="Run name for results subfolder"/>
+
+  <!-- ========== Config file (optional YAML) ========== -->
+  <arg name="config_file" default=""
+       doc="YAML config file to load parameters from (overridden by explicit args)"/>
+
+  <!-- ========== Offline-only parameters ========== -->
+  <arg name="bag_path" default=""
+       doc="[offline only] ROS bag path to process (required for offline mode)"/>
+  <arg name="skip_to_time" default="0.0"
+       doc="[offline only] Skip to this timestamp in the bag (seconds)"/>
+
+  <!-- ========== RViz ========== -->
+  <arg name="rviz" default="false"
+       doc="Launch RViz simultaneously"/>
+  <arg name="rviz_config_file" default="$(find rko_lio)/config/default.rviz"
+       doc="RViz config file path"/>
+
+  <!-- ========== Logging ========== -->
+  <arg name="log_level" default="info"
+       doc="ROS log level [DEBUG|INFO|WARN|ERROR|FATAL]"/>
+
+  <!-- ================================================================ -->
+  <!-- Online mode: standard async node                                  -->
+  <!-- ================================================================ -->
+  <group if="$(eval arg('mode') == 'online' and arg('odom_at_imu_rate') == 'false')">
+    <node name="rko_lio_node" pkg="rko_lio" type="online_node" output="screen">
+      <rosparam file="$(arg config_file)" command="load"
+                if="$(eval arg('config_file') != '')"/>
+      <param name="imu_topic" value="$(arg imu_topic)" if="$(eval arg('imu_topic') != '')"/>
+      <param name="lidar_topic" value="$(arg lidar_topic)" if="$(eval arg('lidar_topic') != '')"/>
+      <param name="imu_frame" value="$(arg imu_frame)" if="$(eval arg('imu_frame') != '')"/>
+      <param name="lidar_frame" value="$(arg lidar_frame)" if="$(eval arg('lidar_frame') != '')"/>
+      <param name="base_frame" value="$(arg base_frame)" if="$(eval arg('base_frame') != '')"/>
+      <param name="odom_frame" value="$(arg odom_frame)"/>
+      <param name="odom_topic" value="$(arg odom_topic)"/>
+      <param name="invert_odom_tf" value="$(arg invert_odom_tf)"/>
+      <param name="publish_local_map" value="$(arg publish_local_map)"/>
+      <param name="map_topic" value="$(arg map_topic)"/>
+      <param name="publish_map_after" value="$(arg publish_map_after)"/>
+      <param name="publish_lidar_acceleration" value="$(arg publish_lidar_acceleration)"/>
+      <param name="publish_deskewed_scan" value="$(arg publish_deskewed_scan)"/>
+      <param name="deskewed_scan_topic" value="$(arg deskewed_scan_topic)"/>
+      <param name="deskew" value="$(arg deskew)"/>
+      <param name="voxel_size" value="$(arg voxel_size)"/>
+      <param name="max_points_per_voxel" value="$(arg max_points_per_voxel)"/>
+      <param name="max_range" value="$(arg max_range)"/>
+      <param name="min_range" value="$(arg min_range)"/>
+      <param name="max_correspondence_distance" value="$(arg max_correspondence_distance)"/>
+      <param name="convergence_criterion" value="$(arg convergence_criterion)"/>
+      <param name="max_num_threads" value="$(arg max_num_threads)"/>
+      <param name="max_iterations" value="$(arg max_iterations)"/>
+      <param name="max_expected_jerk" value="$(arg max_expected_jerk)"/>
+      <param name="double_downsample" value="$(arg double_downsample)"/>
+      <param name="min_beta" value="$(arg min_beta)"/>
+      <param name="initialization_phase" value="$(arg initialization_phase)"/>
+      <param name="lidar_timestamps/multiplier_to_seconds" value="$(arg lidar_timestamps/multiplier_to_seconds)"/>
+      <param name="lidar_timestamps/force_absolute" value="$(arg lidar_timestamps/force_absolute)"/>
+      <param name="lidar_timestamps/force_relative" value="$(arg lidar_timestamps/force_relative)"/>
+      <param name="async/max_lidar_buffer_size" value="$(arg async/max_lidar_buffer_size)"/>
+      <param name="dump_results" value="$(arg dump_results)"/>
+      <param name="results_dir" value="$(arg results_dir)"/>
+      <param name="run_name" value="$(arg run_name)"/>
+    </node>
+  </group>
+
+  <!-- ================================================================ -->
+  <!-- Online mode: IMU-rate sequential node                             -->
+  <!-- ================================================================ -->
+  <group if="$(eval arg('mode') == 'online' and arg('odom_at_imu_rate') == 'true')">
+    <node name="rko_lio_node" pkg="rko_lio" type="online_imu_rate_node" output="screen">
+      <rosparam file="$(arg config_file)" command="load"
+                if="$(eval arg('config_file') != '')"/>
+      <param name="imu_topic" value="$(arg imu_topic)" if="$(eval arg('imu_topic') != '')"/>
+      <param name="lidar_topic" value="$(arg lidar_topic)" if="$(eval arg('lidar_topic') != '')"/>
+      <param name="imu_frame" value="$(arg imu_frame)" if="$(eval arg('imu_frame') != '')"/>
+      <param name="lidar_frame" value="$(arg lidar_frame)" if="$(eval arg('lidar_frame') != '')"/>
+      <param name="base_frame" value="$(arg base_frame)" if="$(eval arg('base_frame') != '')"/>
+      <param name="odom_frame" value="$(arg odom_frame)"/>
+      <param name="odom_topic" value="$(arg odom_topic)"/>
+      <param name="invert_odom_tf" value="$(arg invert_odom_tf)"/>
+      <param name="publish_local_map" value="$(arg publish_local_map)"/>
+      <param name="map_topic" value="$(arg map_topic)"/>
+      <param name="publish_map_after" value="$(arg publish_map_after)"/>
+      <param name="publish_lidar_acceleration" value="$(arg publish_lidar_acceleration)"/>
+      <param name="publish_deskewed_scan" value="$(arg publish_deskewed_scan)"/>
+      <param name="deskewed_scan_topic" value="$(arg deskewed_scan_topic)"/>
+      <param name="deskew" value="$(arg deskew)"/>
+      <param name="voxel_size" value="$(arg voxel_size)"/>
+      <param name="max_points_per_voxel" value="$(arg max_points_per_voxel)"/>
+      <param name="max_range" value="$(arg max_range)"/>
+      <param name="min_range" value="$(arg min_range)"/>
+      <param name="max_correspondence_distance" value="$(arg max_correspondence_distance)"/>
+      <param name="convergence_criterion" value="$(arg convergence_criterion)"/>
+      <param name="max_num_threads" value="$(arg max_num_threads)"/>
+      <param name="max_iterations" value="$(arg max_iterations)"/>
+      <param name="max_expected_jerk" value="$(arg max_expected_jerk)"/>
+      <param name="double_downsample" value="$(arg double_downsample)"/>
+      <param name="min_beta" value="$(arg min_beta)"/>
+      <param name="initialization_phase" value="$(arg initialization_phase)"/>
+      <param name="lidar_timestamps/multiplier_to_seconds" value="$(arg lidar_timestamps/multiplier_to_seconds)"/>
+      <param name="lidar_timestamps/force_absolute" value="$(arg lidar_timestamps/force_absolute)"/>
+      <param name="lidar_timestamps/force_relative" value="$(arg lidar_timestamps/force_relative)"/>
+      <param name="seq/odom_at_imu_rate_topic" value="$(arg seq/odom_at_imu_rate_topic)"/>
+      <param name="seq/tf_at_imu_rate" value="$(arg seq/tf_at_imu_rate)"/>
+      <param name="dump_results" value="$(arg dump_results)"/>
+      <param name="results_dir" value="$(arg results_dir)"/>
+      <param name="run_name" value="$(arg run_name)"/>
+    </node>
+  </group>
+
+  <!-- ================================================================ -->
+  <!-- Offline mode                                                      -->
+  <!-- ================================================================ -->
+  <group if="$(eval arg('mode') == 'offline')">
+    <node name="rko_lio_node" pkg="rko_lio" type="offline_node" output="screen">
+      <rosparam file="$(arg config_file)" command="load"
+                if="$(eval arg('config_file') != '')"/>
+      <param name="imu_topic" value="$(arg imu_topic)" if="$(eval arg('imu_topic') != '')"/>
+      <param name="lidar_topic" value="$(arg lidar_topic)" if="$(eval arg('lidar_topic') != '')"/>
+      <param name="imu_frame" value="$(arg imu_frame)" if="$(eval arg('imu_frame') != '')"/>
+      <param name="lidar_frame" value="$(arg lidar_frame)" if="$(eval arg('lidar_frame') != '')"/>
+      <param name="base_frame" value="$(arg base_frame)" if="$(eval arg('base_frame') != '')"/>
+      <param name="odom_frame" value="$(arg odom_frame)"/>
+      <param name="odom_topic" value="$(arg odom_topic)"/>
+      <param name="invert_odom_tf" value="$(arg invert_odom_tf)"/>
+      <param name="publish_local_map" value="$(arg publish_local_map)"/>
+      <param name="map_topic" value="$(arg map_topic)"/>
+      <param name="publish_map_after" value="$(arg publish_map_after)"/>
+      <param name="publish_lidar_acceleration" value="$(arg publish_lidar_acceleration)"/>
+      <param name="publish_deskewed_scan" value="$(arg publish_deskewed_scan)"/>
+      <param name="deskewed_scan_topic" value="$(arg deskewed_scan_topic)"/>
+      <param name="deskew" value="$(arg deskew)"/>
+      <param name="voxel_size" value="$(arg voxel_size)"/>
+      <param name="max_points_per_voxel" value="$(arg max_points_per_voxel)"/>
+      <param name="max_range" value="$(arg max_range)"/>
+      <param name="min_range" value="$(arg min_range)"/>
+      <param name="max_correspondence_distance" value="$(arg max_correspondence_distance)"/>
+      <param name="convergence_criterion" value="$(arg convergence_criterion)"/>
+      <param name="max_num_threads" value="$(arg max_num_threads)"/>
+      <param name="max_iterations" value="$(arg max_iterations)"/>
+      <param name="max_expected_jerk" value="$(arg max_expected_jerk)"/>
+      <param name="double_downsample" value="$(arg double_downsample)"/>
+      <param name="min_beta" value="$(arg min_beta)"/>
+      <param name="initialization_phase" value="$(arg initialization_phase)"/>
+      <param name="lidar_timestamps/multiplier_to_seconds" value="$(arg lidar_timestamps/multiplier_to_seconds)"/>
+      <param name="lidar_timestamps/force_absolute" value="$(arg lidar_timestamps/force_absolute)"/>
+      <param name="lidar_timestamps/force_relative" value="$(arg lidar_timestamps/force_relative)"/>
+      <param name="bag_path" value="$(arg bag_path)" if="$(eval arg('bag_path') != '')"/>
+      <param name="skip_to_time" value="$(arg skip_to_time)"/>
+      <param name="dump_results" value="$(arg dump_results)"/>
+      <param name="results_dir" value="$(arg results_dir)"/>
+      <param name="run_name" value="$(arg run_name)"/>
+    </node>
+  </group>
+
+  <!-- ================================================================ -->
+  <!-- RViz (optional)                                                   -->
+  <!-- ================================================================ -->
+  <node name="rviz" pkg="rviz" type="rviz" output="screen"
+        args="-d $(arg rviz_config_file)"
+        if="$(eval arg('rviz') == 'true')"/>
+
+</launch>

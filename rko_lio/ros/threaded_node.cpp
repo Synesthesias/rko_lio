@@ -29,19 +29,16 @@
 // other
 #include <stdexcept>
 
-namespace {
-using namespace std::literals;
-} // namespace
-
 namespace rko_lio::ros {
 
-ThreadedNode::ThreadedNode(const std::string& node_name, const rclcpp::NodeOptions& options) : BaseNode(node_name, options) {
-  max_lidar_buffer_size = static_cast<size_t>(node->declare_parameter<int>(
-      "async.max_lidar_buffer_size", static_cast<int>(max_lidar_buffer_size)));
-  registration_thread = std::jthread([this]() { registration_loop(); });
+ThreadedNode::ThreadedNode(const std::string& node_name) : BaseNode(node_name) {
+  int max_lidar_buffer_size_int = static_cast<int>(max_lidar_buffer_size);
+  pnh_.param<int>("async/max_lidar_buffer_size", max_lidar_buffer_size_int, max_lidar_buffer_size_int);
+  max_lidar_buffer_size = static_cast<size_t>(max_lidar_buffer_size_int);
+  registration_thread = std::thread([this]() { registration_loop(); });
 }
 
-void ThreadedNode::imu_callback(const sensor_msgs::msg::Imu::ConstSharedPtr& imu_msg) {
+void ThreadedNode::imu_callback(const sensor_msgs::Imu::ConstPtr& imu_msg) {
   if (!ensure_frame_and_extrinsics(imu_frame, imu_msg->header.frame_id, "IMU")) {
     return;
   }
@@ -55,14 +52,14 @@ void ThreadedNode::imu_callback(const sensor_msgs::msg::Imu::ConstSharedPtr& imu
   }
 }
 
-void ThreadedNode::lidar_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& lidar_msg) {
+void ThreadedNode::lidar_callback(const sensor_msgs::PointCloud2::ConstPtr& lidar_msg) {
   if (!ensure_frame_and_extrinsics(lidar_frame, lidar_msg->header.frame_id, "LiDAR")) {
     return;
   }
   {
     std::lock_guard lock(buffer_mutex);
     if (lidar_buffer.size() >= max_lidar_buffer_size) {
-      RCLCPP_WARN_STREAM(node->get_logger(), "Registration lidar buffer limit reached. Dropping frame.");
+      ROS_WARN_STREAM("Registration lidar buffer limit reached. Dropping frame.");
       sync_condition_variable.notify_one();
       return;
     }
@@ -78,17 +75,16 @@ void ThreadedNode::lidar_callback(const sensor_msgs::msg::PointCloud2::ConstShar
       sync_condition_variable.notify_one();
     }
   } catch (const std::invalid_argument& ex) {
-    RCLCPP_ERROR_STREAM(node->get_logger(), "Encountered error, dropping frame: Error. " << ex.what());
+    ROS_ERROR_STREAM("Encountered error, dropping frame: Error. " << ex.what());
   }
 }
 
 void ThreadedNode::registration_loop() {
-  while (rclcpp::ok() && atomic_node_running) {
+  while (::ros::ok() && atomic_node_running) {
     SCOPED_PROFILER("ROS Registration Loop");
     std::unique_lock buffer_lock(buffer_mutex);
     sync_condition_variable.wait(buffer_lock, [this]() { return !atomic_node_running || atomic_can_process; });
     if (!atomic_node_running) {
-      // node could have been killed after waiting on the cv
       break;
     }
     LidarFrame frame = std::move(lidar_buffer.front());
@@ -100,20 +96,18 @@ void ThreadedNode::registration_loop() {
       const core::ImuControl& imu_data = imu_buffer.front();
       lio->add_imu_measurement(extrinsic_imu2base, imu_data);
     }
-    // check if there are more messages buffered already
     atomic_can_process =
         !imu_buffer.empty() && !lidar_buffer.empty() && imu_buffer.back().time > lidar_buffer.front().timestamps.max;
-    buffer_lock.unlock(); // we dont touch the buffers anymore
+    buffer_lock.unlock();
 
     try {
       const core::Vector3dVector deskewed_frame = register_scan_locked(scan, time_vector);
       if (!deskewed_frame.empty()) {
-        // TODO: first frame is skipped and an empty frame is returned. improve how we handle this
         publish_lidar_outputs(deskewed_frame);
         publish_tf(lio->lidar_state);
       }
     } catch (const std::invalid_argument& ex) {
-      RCLCPP_ERROR_STREAM(node->get_logger(), "Encountered error, dropping frame. Error: " << ex.what());
+      ROS_ERROR_STREAM("Encountered error, dropping frame. Error: " << ex.what());
     }
     registration_busy = false;
   }
@@ -123,6 +117,9 @@ void ThreadedNode::registration_loop() {
 ThreadedNode::~ThreadedNode() {
   atomic_node_running = false;
   sync_condition_variable.notify_all();
+  if (registration_thread.joinable()) {
+    registration_thread.join();
+  }
 }
 
 } // namespace rko_lio::ros
