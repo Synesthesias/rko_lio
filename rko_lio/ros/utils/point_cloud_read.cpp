@@ -30,10 +30,10 @@
 
 namespace rko_lio::ros::utils {
 using Vector3dVector = std::vector<Eigen::Vector3d>;
-using PointCloud2 = sensor_msgs::msg::PointCloud2;
-using PointField = sensor_msgs::msg::PointField;
+using PointCloud2 = sensor_msgs::PointCloud2;
+using PointField = sensor_msgs::PointField;
 
-Vector3dVector point_cloud2_to_eigen(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& msg) {
+Vector3dVector point_cloud2_to_eigen(const sensor_msgs::PointCloud2::ConstPtr& msg) {
   const size_t point_count = static_cast<size_t>(msg->height) * msg->width;
   Vector3dVector points;
   points.reserve(point_count);
@@ -47,9 +47,8 @@ Vector3dVector point_cloud2_to_eigen(const sensor_msgs::msg::PointCloud2::ConstS
 }
 
 std::tuple<Vector3dVector, std::vector<double>>
-point_cloud2_to_eigen_with_timestamps(const PointCloud2::ConstSharedPtr& msg) {
+point_cloud2_to_eigen_with_timestamps(const PointCloud2::ConstPtr& msg) {
   using sensor_msgs::PointCloud2ConstIterator;
-  // getting points and time in a single cycle loop
   const size_t point_count = static_cast<size_t>(msg->height) * msg->width;
   Vector3dVector points;
   points.reserve(point_count);
@@ -71,7 +70,6 @@ point_cloud2_to_eigen_with_timestamps(const PointCloud2::ConstSharedPtr& msg) {
     throw std::invalid_argument("Point cloud needs timestamps for deskewing");
   });
 
-  // templated lambda (auto) ftw
   auto extract_points_and_timestamps = [&](auto&& time_iter) {
     for (size_t i = 0; i < point_count; ++i, ++msg_x, ++msg_y, ++msg_z, ++time_iter) {
       points.emplace_back(*msg_x, *msg_y, *msg_z);

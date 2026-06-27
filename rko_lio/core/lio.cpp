@@ -424,11 +424,22 @@ Vector3dVector LIO::register_scan(const Vector3dVector& scan, const TimestampVec
     return bootstrap_first_scan(scan, current_lidar_time);
   }
 
-  if (std::chrono::abs(current_lidar_time - lidar_state.time) > std::chrono::seconds(1)) {
-    const double diff_seconds = to_seconds(current_lidar_time - lidar_state.time);
-    // TODO: std::expected with tl::expected (because ros humble)
-    throw std::invalid_argument("Received LiDAR scan with " + std::to_string(diff_seconds) +
-                                " seconds delta to previous scan.");
+  const double frame_dt = to_seconds(current_lidar_time - lidar_state.time);
+
+  const bool large_time_gap = std::chrono::abs(current_lidar_time - lidar_state.time) > std::chrono::seconds(1);
+  if (large_time_gap) {
+    static auto last_delta_warn = std::chrono::steady_clock::time_point{};
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last_delta_warn > std::chrono::seconds(5)) {
+      std::cerr << "[WARNING] LiDAR scan delta " << frame_dt
+                << " s exceeds 1 s (frames likely skipped); resetting motion state.\n";
+      last_delta_warn = now;
+    }
+    lidar_state.velocity = Eigen::Vector3d::Zero();
+    lidar_state.angular_velocity = Eigen::Vector3d::Zero();
+    lidar_state.linear_acceleration = Eigen::Vector3d::Zero();
+    mean_body_acceleration = Eigen::Vector3d::Zero();
+    body_acceleration_covariance = Eigen::Matrix3d::Identity();
   }
 
   const auto [avg_body_accel, avg_ang_vel] = motion_priors_from_imu(current_lidar_time);
@@ -468,14 +479,24 @@ Vector3dVector LIO::register_scan(const Vector3dVector& scan, const TimestampVec
 
   if (!map.empty()) {
     SCOPED_PROFILER("ICP");
-    const Sophus::SE3d optimized_pose = icp(preproc_result.keypoints, map, initial_guess, config, kf_step.info);
+
+    LIO::Config icp_config = config;
+    if (large_time_gap) {
+      icp_config.max_correspondence_distance = std::max(config.max_correspondence_distance, config.voxel_size * 3.0);
+    }
+    const Sophus::SE3d optimized_pose = icp(preproc_result.keypoints, map, initial_guess, icp_config, kf_step.info);
 
     // estimate velocities and accelerations from the new pose
     const double dt = to_seconds(current_lidar_time - lidar_state.time);
     const Sophus::SE3d motion = lidar_state.pose.inverse() * optimized_pose;
-    const Eigen::Vector6d local_velocity = motion.log() / dt;
-    const Eigen::Vector3d local_linear_acceleration =
-        (local_velocity.head<3>() - motion.so3().inverse() * lidar_state.velocity) / dt;
+    Eigen::Vector6d local_velocity = motion.log() / dt;
+    Eigen::Vector3d local_linear_acceleration;
+    if (large_time_gap) {
+      local_linear_acceleration = Eigen::Vector3d::Zero();
+    } else {
+      local_linear_acceleration =
+          (local_velocity.head<3>() - motion.so3().inverse() * lidar_state.velocity) / dt;
+    }
 
     // update
     lidar_state.pose = optimized_pose;

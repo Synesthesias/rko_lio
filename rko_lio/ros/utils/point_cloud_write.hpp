@@ -23,10 +23,11 @@
 
 #pragma once
 #include <Eigen/Core>
-#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/PointCloud2.h>
+#include <std_msgs/Header.h>
 #include <vector>
 
 namespace rko_lio::ros::utils {
-std::unique_ptr<sensor_msgs::msg::PointCloud2> eigen_to_point_cloud2(const std::vector<Eigen::Vector3d>& points,
-                                                                     const std_msgs::msg::Header& header);
+sensor_msgs::PointCloud2Ptr eigen_to_point_cloud2(const std::vector<Eigen::Vector3d>& points,
+                                                  const std_msgs::Header& header);
 }

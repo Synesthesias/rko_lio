@@ -7,7 +7,7 @@
 
 [![IEEE RA-L](https://img.shields.io/badge/IEEE_RA--L-10.1109%2FLRA.2026.3685966-00629B.svg)](https://doi.org/10.1109/LRA.2026.3685966) [![arXiv](https://img.shields.io/badge/arXiv-2509.06593-b31b1b.svg)](https://arxiv.org/abs/2509.06593) [![GitHub License](https://img.shields.io/github/license/PRBonn/rko_lio)](/LICENSE) [![GitHub last commit](https://img.shields.io/github/last-commit/PRBonn/rko_lio)](/)
 
-[![PyPI - Version](https://img.shields.io/pypi/v/rko_lio?color=blue)](https://pypi.org/project/rko-lio/) [![ROS Package Index](https://img.shields.io/ros/v/humble/rko_lio?color=blue)](https://index.ros.org/p/rko_lio/#humble) [![ROS Package Index](https://img.shields.io/ros/v/jazzy/rko_lio?color=blue)](https://index.ros.org/p/rko_lio/#jazzy) [![ROS Package Index](https://img.shields.io/ros/v/kilted/rko_lio?color=blue)](https://index.ros.org/p/rko_lio/#kilted) [![ROS Package Index](https://img.shields.io/ros/v/lyrical/rko_lio?color=blue)](https://index.ros.org/p/rko_lio/#lyrical) [![ROS Package Index](https://img.shields.io/ros/v/rolling/rko_lio?color=blue)](https://index.ros.org/p/rko_lio/#rolling)
+[![PyPI - Version](https://img.shields.io/pypi/v/rko_lio?color=blue)](https://pypi.org/project/rko-lio/)
 
 </div>
 
@@ -19,86 +19,133 @@
   <em>Four different platforms, four different environments, one odometry system</em>
 </p>
 
-## Quick Start
+This repository contains a **ROS1 (catkin / roscpp)** port of RKO-LIO, intended for **Ubuntu 22.04** with the **ros-one** distribution.
 
-<!-- [demo video here] -->
+## Quick Start (ROS1)
 
-Following is for the python version, see [ROS](#ros) for that.
+### Prerequisites
 
-Assuming you have a rosbag (ros1/ros2) which contains a TF tree, you can run RKO-LIO through
+- Ubuntu 22.04
+- ros-one (ROS 1) with `roscpp`, `rosbag`, `tf2`, `sensor_msgs`, `nav_msgs`
+- A catkin workspace (e.g. catkin_tools)
+
+System packages commonly required for building:
 
 ```bash
-pip install "rko_lio[all]"
-# or
-pip install rko_lio rosbags "rerun-sdk>=0.31"
-# data path should be a directory with *.bag files (ROS1) or a metadata.yaml (ROS2)
-rko_lio -v /path/to/data
+sudo apt install libeigen3-dev libtbb-dev
 ```
 
-Why `pip install` those three packages?
-- `rko_lio` -> the odometry package
-- `rosbags` -> required for the rosbag dataloader. Both ros1 and ros2 bags are supported!
-- `rerun-sdk` -> required for the optional visualizer (`-v` flag)
+### Build
 
-`pip install "rko_lio[all]"` fetches the other optional dependencies as well.
+Clone this package into your catkin workspace `src/` directory, then:
 
-Check further options for the CLI through `rko_lio --help`.
+```bash
+cd /path/to/your/catkin_ws
+rosdep install --from-paths src --ignore-src -r -y
+catkin build rko_lio --cmake-args -DCMAKE_BUILD_TYPE=Release
+source devel/setup.bash
+```
 
-To dump a default config you can edit and pass with `--config`, run `rko_lio --dump_config`.
+Build in **Release** mode (`-DCMAKE_BUILD_TYPE=Release`). Debug builds are significantly slower and may not keep up with 10 Hz LiDAR in real time.
 
-More details are available in the [Python docs](https://prbonn.github.io/rko_lio/pages/python.html).
+If `rosdep` cannot resolve dependencies such as Sophus or `tsl-robin-map`, fetch them automatically at configure time:
+
+```bash
+catkin build rko_lio --cmake-args -DCMAKE_BUILD_TYPE=Release -DRKO_LIO_FETCH_CONTENT_DEPS=ON
+```
+
+### Online odometry
+
+The launch file loads defaults from `config/ros_default.yaml`. Override sensor topics and frames as needed:
+
+```bash
+roslaunch rko_lio odometry.launch \
+  lidar_topic:=/sensing/pandar \
+  base_frame:=base_link \
+  rviz:=false
+```
+
+`imu_topic`, `lidar_topic`, and `base_frame` must be set either via launch arguments or in the YAML config loaded by `config_file`. When using `ros_default.yaml`, `imu_topic` defaults to `/sensing/ins/imu`.
+
+Example with an explicit config file:
+
+```bash
+roslaunch rko_lio odometry.launch \
+  config_file:=$(rospack find rko_lio)/config/ros_default.yaml \
+  lidar_topic:=/sensing/pandar \
+  base_frame:=base_link
+```
+
+### Launch modes
+
+`odometry.launch` supports three modes via the `mode` argument:
+
+| `mode` | Node | Description |
+|--------|------|-------------|
+| `online` (default) | `online_node` | Threaded async registration from live topics |
+| `online_imu_rate` | `online_imu_rate_node` | Sequential pipeline; optional IMU-rate odometry |
+| `offline` | `offline_node` | Replay from a rosbag (`bag_path` required) |
+
+Offline example:
+
+```bash
+roslaunch rko_lio odometry.launch \
+  mode:=offline \
+  bag_path:=/path/to/data.bag \
+  lidar_topic:=/sensing/pandar \
+  base_frame:=base_link \
+  rviz:=false
+```
+
+### Published topics (defaults)
+
+| Topic | Type | Description |
+|-------|------|-------------|
+| `/rko_lio/odom` | `nav_msgs/Odometry` | LiDAR-rate odometry |
+| `rko_lio/lidar_acceleration` | custom | LiDAR-frame acceleration estimate |
+| `/rko_lio/local_map` | `sensor_msgs/PointCloud2` | Local map (if `publish_local_map:=true`) |
+
+TF: `odom` → `base_link` (child frame configurable via `base_frame`).
+
+### Configuration
+
+Parameters are loaded onto the private namespace `/rko_lio/` from YAML. See `config/ros_default.yaml` for defaults and available LIO tuning options (`voxel_size`, `max_range`, `deskew`, etc.).
+
+To inspect all launch arguments:
+
+```bash
+roslaunch rko_lio odometry.launch --help
+```
 
 ### Extrinsics and convention
 
-Please note that the system needs the extrinsic to be specified between IMU and LiDAR. Either your data includes this in some format, and then the dataloaders try to automatically read it, or otherwise you can specify it in a config file (required if it's missing in the data).
-Pass the config file with
+The system needs extrinsics between IMU, LiDAR, and the base frame. If your TF tree defines `imu` → `base_link` and `pandar` → `base_link` (or equivalent), extrinsics are resolved automatically from TF.
 
-```bash
-rko_lio --config config_file.yaml
+Otherwise, set them in the config YAML:
+
+```yaml
+extrinsic_imu2base_quat_xyzw_xyz: [qx, qy, qz, qw, tx, ty, tz]
+extrinsic_lidar2base_quat_xyzw_xyz: [qx, qy, qz, qw, tx, ty, tz]
 ```
 
-This file needs two keys: `extrinsic_imu2base_quat_xyzw_xyz` and `extrinsic_lidar2base_quat_xyzw_xyz`, which must each be a list. For example: `[0,0,0,1,0,0,0]` for identity. Both keys are required.
+Each value is a list of seven numbers: quaternion `(x, y, z, w)` followed by translation `(x, y, z)`. Example identity: `[0, 0, 0, 1, 0, 0, 0]`.
 
-Throughout this package, I refer to transformations using `transform_<from-frame>2<to-frame>`. By this, I mean a transformation that converts a vector expressed in the `<from-frame>` coordinate system to the `<to-frame>` coordinate system. Mathematically, this translates to:
+Transform naming follows `extrinsic_<from>2<to>`: a vector expressed in `<from>` is transformed into `<to>`.
 
-$$ \mathbf{v}^{\mathrm{to}} = {}^{\mathrm{to}}\mathbf{T}_{\mathrm{from}} \mathbf{v}^{\mathrm{from}} $$
+### Notes on real-time operation
 
-The superscript on the vector indicates the frame in which the vector is expressed, and $^{ \mathrm{to} }\mathbf{T}_{\mathrm{from}}$ corresponds to `transform_<from-frame>_to_<to-frame>`.
+If registration is slightly slower than the LiDAR rate, you may see throttled warnings such as `Registration backlog: skipping N stale lidar scan(s).` This is expected under load; the node keeps the latest scan and continues publishing odometry. For best throughput, always build with `-DCMAKE_BUILD_TYPE=Release`.
 
-## ROS
+## Python (optional)
 
-Supported distros: Humble, Jazzy, Kilted, Lyrical, Rolling.
-
-```bash
-sudo apt install ros-$ROS_DISTRO-rko-lio
-```
-
-Or if you'd like to build from source, clone the repo into your colcon workspace and
+The upstream project also provides a standalone Python CLI and PyPI package. That path is independent of the ROS1 nodes above.
 
 ```bash
-rosdep install --from-paths src --ignore-src -r -y
-colcon build --packages-select rko_lio  # --symlink-install --event-handlers console_direct+
+pip install "rko_lio[all]"
+rko_lio -v /path/to/data
 ```
 
-In case you cannot system install the necessary dependencies through rosdep, you can also build the dependencies while building RKO-LIO
-
-```bash
-colcon build --packages-select rko_lio --cmake-args -DRKO_LIO_FETCH_CONTENT_DEPS=ON
-```
-
-A launch file is provided:
-
-```bash
-ros2 launch rko_lio odometry.launch.py imu_topic:=<topic> lidar_topic:=<topic> base_frame:=base_link
-```
-
-The three parameters `imu_topic`, `lidar_topic`, and `base_frame` are the minimum you need to specify for the launch file. You can specify them and other options all at once in a config file passed with `config_file:=file.yaml`.
-
-Check further launch configuration options through `ros2 launch rko_lio odometry.launch.py -s`
-
-More details are available in the [ROS docs](https://prbonn.github.io/rko_lio/pages/ros.html).
-
-The same note [above about extrinsics](#extrinsics-and-convention) applies here as well. Though you probably have a well defined TF tree and need not concern yourself with this (I hope).
+See `rko_lio --help` and the [upstream Python docs](https://prbonn.github.io/rko_lio/pages/python.html).
 
 ## Citation
 

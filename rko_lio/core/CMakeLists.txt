@@ -20,35 +20,23 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-add_library(rko_lio.core STATIC)
+add_library(rko_lio_core STATIC
+  lio.cpp
+  voxel_hash_map.cpp
+  voxel_down_sample.cpp
+  process_timestamps.cpp
+  preprocess_scan.cpp
+)
 
-add_library(rko_lio::core ALIAS rko_lio.core)
+target_include_directories(rko_lio_core PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/../..
+)
 
-compat_target_sources(
-  rko_lio.core
-  PRIVATE lio.cpp
-          voxel_hash_map.cpp
-          voxel_down_sample.cpp
-          process_timestamps.cpp
-          preprocess_scan.cpp
-  PUBLIC
-  FILE_SET
-  HEADERS
-  FILES ../../rko_lio/core/lio.hpp
-        ../../rko_lio/core/preprocess_scan.hpp
-        ../../rko_lio/core/process_timestamps.hpp
-        ../../rko_lio/core/profiler.hpp
-        ../../rko_lio/core/voxel_hash_map.hpp
-        ../../rko_lio/core/util.hpp
-        ../../rko_lio/core/voxel_down_sample.hpp
-  BASE_DIRS ../..)
-
-target_link_libraries(
-  rko_lio.core
+target_link_libraries(rko_lio_core
   PRIVATE TBB::tbb
-  PUBLIC tsl::robin_map Sophus::Sophus Eigen3::Eigen)
+  PUBLIC tsl::robin_map Sophus::Sophus Eigen3::Eigen
+)
 
-target_compile_features(rko_lio.core PUBLIC cxx_std_20)
+target_compile_features(rko_lio_core PUBLIC cxx_std_20)
 
-set_target_properties(rko_lio.core PROPERTIES POSITION_INDEPENDENT_CODE ON
-                                              EXPORT_NAME core)
+set_target_properties(rko_lio_core PROPERTIES POSITION_INDEPENDENT_CODE ON)

@@ -23,39 +23,21 @@
 
 // copied and modified from kinematic icp
 #include "rosbag.hpp"
-// ROS
-#include <rclcpp/serialized_message.hpp>
-#include <rclcpp/version.h>
-#include <rosbag2_storage/bag_metadata.hpp>
-#include <tf2_msgs/msg/tf_message.hpp>
 // stl
 #include <algorithm>
-
-namespace {
-inline auto GetTimestampsFromRosbagSerializedMsg(const rosbag2_storage::SerializedBagMessage& msg) {
-#if RCLCPP_VERSION_GTE(22, 0, 0)
-  return std::chrono::nanoseconds(msg.recv_timestamp);
-#else
-  return std::chrono::nanoseconds(msg.time_stamp);
-#endif
-}
-} // namespace
+#include <iostream>
 
 namespace rko_lio::ros::utils {
 // TFBridge----------------------------------------------------------------------------------------
-BufferableBag::TFBridge::TFBridge(rclcpp::Node::SharedPtr node) {
-  tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(node);
-  tf_static_broadcaster = std::make_unique<tf2_ros::StaticTransformBroadcaster>(node);
-  serializer = rclcpp::Serialization<tf2_msgs::msg::TFMessage>();
+BufferableBag::TFBridge::TFBridge(::ros::NodeHandle& nh) {
+  tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>();
+  tf_static_broadcaster = std::make_unique<tf2_ros::StaticTransformBroadcaster>();
 }
 
-void BufferableBag::TFBridge::ProcessTFMessage(const std::shared_ptr<rosbag2_storage::SerializedBagMessage> msg) const {
-  tf2_msgs::msg::TFMessage tf_message;
-  rclcpp::SerializedMessage serialized_msg(*msg->serialized_data);
-  serializer.deserialize_message(&serialized_msg, &tf_message);
-  // Broadcast tranforms to /tf and /tf_static topics
-  for (auto& transform : tf_message.transforms) {
-    if (msg->topic_name == "/tf_static") {
+void BufferableBag::TFBridge::ProcessTFMessage(const tf2_msgs::TFMessage::ConstPtr& msg,
+                                               const std::string& topic_name) const {
+  for (const auto& transform : msg->transforms) {
+    if (topic_name == "/tf_static") {
       tf_static_broadcaster->sendTransform(transform);
     } else {
       tf_broadcaster->sendTransform(transform);
@@ -67,49 +49,58 @@ void BufferableBag::TFBridge::ProcessTFMessage(const std::shared_ptr<rosbag2_sto
 BufferableBag::BufferableBag(const std::string& bag_path,
                              const std::shared_ptr<TFBridge> tf_bridge,
                              const std::vector<std::string>& topics,
-                             const tf2::Duration seek,
+                             const double seek_seconds,
                              const std::chrono::seconds buffer_size)
     : tf_bridge_(tf_bridge),
-      bag_reader_(std::make_unique<rosbag2_cpp::Reader>()),
+      bag_(std::make_unique<rosbag::Bag>()),
       buffer_size_(buffer_size),
       topics_(topics) {
   publish_tf_static(bag_path);
-  bag_reader_->open(bag_path);
-  bag_reader_->seek(seek.count());
-  bag_reader_->set_filter(rosbag2_storage::StorageFilter{topics_});
-  message_count_ = [&]() {
-    size_t message_count = 0;
-    const auto& metadata = bag_reader_->get_metadata();
-    const auto topic_info = metadata.topics_with_message_count;
-    // iterate over all topics
-    for (const auto& topic : topics_) {
-      const auto it = std::find_if(topic_info.cbegin(), topic_info.cend(),
-                                   [&](const auto& info) { return info.topic_metadata.name == topic; });
-      if (it != topic_info.end()) {
-        message_count += it->message_count;
-      }
-    }
-    return message_count;
-  }();
+
+  bag_->open(bag_path, rosbag::bagmode::Read);
+
+  // Build query topics: user topics + /tf for live transform broadcasting
+  std::vector<std::string> query_topics = topics_;
+  query_topics.push_back("/tf");
+
+  // Determine start time with seek offset
+  ::ros::Time start_time = ::ros::TIME_MIN;
+  if (seek_seconds > 0.0) {
+    rosbag::View temp_view(*bag_);
+    start_time = temp_view.getBeginTime() + ::ros::Duration(seek_seconds);
+  }
+
+  view_ = std::make_unique<rosbag::View>(*bag_, rosbag::TopicQuery(query_topics), start_time);
+  view_iter_ = view_->begin();
+  view_exhausted_ = (view_iter_ == view_->end());
+
+  // Count messages for the user-requested topics only
+  {
+    rosbag::View count_view(*bag_, rosbag::TopicQuery(topics_), start_time);
+    message_count_ = count_view.size();
+  }
+
   std::cout << "Bag reader initialized with total message count: " << message_count_ << '\n';
   BufferMessages();
 }
 
 void BufferableBag::publish_tf_static(const std::string& bag_path) {
   std::cout << "Opening the bag first to publish all the tf_static messages\n";
-  rosbag2_cpp::Reader tf_reader;
-  tf_reader.open(bag_path);
-  tf_reader.set_filter(rosbag2_storage::StorageFilter{{"/tf_static"}});
-  while (tf_reader.has_next()) {
-    const auto msg = tf_reader.read_next();
-    tf_bridge_->ProcessTFMessage(msg);
+  rosbag::Bag tf_bag;
+  tf_bag.open(bag_path, rosbag::bagmode::Read);
+  rosbag::View tf_view(tf_bag, rosbag::TopicQuery(std::vector<std::string>{"/tf_static"}));
+  for (const rosbag::MessageInstance& m : tf_view) {
+    auto tf_msg = m.instantiate<tf2_msgs::TFMessage>();
+    if (tf_msg) {
+      tf_bridge_->ProcessTFMessage(tf_msg, "/tf_static");
+    }
   }
-  tf_reader.close();
+  tf_bag.close();
   std::cout << "tf_static published, if any. Closing the bag...\n";
 }
 
-bool BufferableBag::finished() const { return !bag_reader_->has_next() && buffer_.empty(); };
-void BufferableBag::close() const { bag_reader_->close(); }
+bool BufferableBag::finished() const { return view_exhausted_ && buffer_.empty(); }
+void BufferableBag::close() { bag_->close(); }
 
 size_t BufferableBag::message_count() const { return message_count_; }
 
@@ -118,31 +109,49 @@ void BufferableBag::BufferMessages() {
     if (buffer_.empty()) {
       return false;
     }
-    const auto first_stamp = GetTimestampsFromRosbagSerializedMsg(buffer_.front());
-    const auto last_stamp = GetTimestampsFromRosbagSerializedMsg(buffer_.back());
-    return (last_stamp - first_stamp) > buffer_size_;
+    const auto first_ns = std::chrono::nanoseconds(buffer_.front().timestamp.toNSec());
+    const auto last_ns = std::chrono::nanoseconds(buffer_.back().timestamp.toNSec());
+    return (last_ns - first_ns) > buffer_size_;
   };
 
-  // Advance reading one message until the buffer is filled or we finish the bagfile
-  while (!buffer_is_filled() && bag_reader_->has_next()) {
-    // Fetch next message from bagfile, could be anything
-    const auto msg = bag_reader_->read_next();
-    // If the msg is TFMessage, fill the tf_buffer and broadcast the transformation and don't
-    // populate the buffered_messages_ as we already processed it
-    if (msg->topic_name == "/tf") {
-      tf_bridge_->ProcessTFMessage(msg);
-    } else if (std::find(topics_.cbegin(), topics_.cend(), msg->topic_name) != topics_.end()) {
-      // If the msg is not a TFMessage and matches any topic in topics_, push it to the internal
-      // buffer
-      buffer_.push(*msg);
+  while (!buffer_is_filled() && !view_exhausted_) {
+    const rosbag::MessageInstance& m = *view_iter_;
+    const std::string& topic = m.getTopic();
+
+    if (topic == "/tf") {
+      auto tf_msg = m.instantiate<tf2_msgs::TFMessage>();
+      if (tf_msg) {
+        tf_bridge_->ProcessTFMessage(tf_msg, "/tf");
+      }
+    } else if (std::find(topics_.cbegin(), topics_.cend(), topic) != topics_.end()) {
+      BagMessage bag_msg;
+      bag_msg.topic_name = topic;
+      bag_msg.timestamp = m.getTime();
+
+      auto imu_msg = m.instantiate<sensor_msgs::Imu>();
+      if (imu_msg) {
+        bag_msg.imu_msg = imu_msg;
+        buffer_.push(std::move(bag_msg));
+      } else {
+        auto lidar_msg = m.instantiate<sensor_msgs::PointCloud2>();
+        if (lidar_msg) {
+          bag_msg.lidar_msg = lidar_msg;
+          buffer_.push(std::move(bag_msg));
+        }
+      }
+    }
+
+    ++view_iter_;
+    if (view_iter_ == view_->end()) {
+      view_exhausted_ = true;
     }
   }
 }
 
-rosbag2_storage::SerializedBagMessage BufferableBag::PopNextMessage() {
-  const rosbag2_storage::SerializedBagMessage msg = buffer_.front();
+BagMessage BufferableBag::PopNextMessage() {
+  BagMessage msg = std::move(buffer_.front());
   buffer_.pop();
-  if (bag_reader_->has_next()) {
+  if (!view_exhausted_) {
     BufferMessages();
   }
   return msg;

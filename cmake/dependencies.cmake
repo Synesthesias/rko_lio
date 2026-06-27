@@ -35,17 +35,28 @@ endif()
 
 include(${CMAKE_CURRENT_LIST_DIR}/mock_find_package.cmake)
 
-if(RKO_LIO_FETCH_CONTENT_DEPS)
-  include(${CMAKE_CURRENT_LIST_DIR}/dependencies/tsl_robin/tsl_robin.cmake)
-  include(${CMAKE_CURRENT_LIST_DIR}/dependencies/eigen/eigen.cmake)
-  include(${CMAKE_CURRENT_LIST_DIR}/dependencies/sophus/sophus.cmake)
-  include(${CMAKE_CURRENT_LIST_DIR}/dependencies/tbb/tbb.cmake)
+set(RKO_LIO_CMAKE_DIR ${CMAKE_CURRENT_LIST_DIR})
 
-  if(RKO_LIO_BUILD_ROS)
-    include(${CMAKE_CURRENT_LIST_DIR}/dependencies/json/nlohmann_json.cmake)
-  endif()
+option(RKO_LIO_FETCH_CONTENT_DEPS
+       "Fetch all core dependencies via FetchContent instead of using find_package" OFF)
+
+if(RKO_LIO_FETCH_CONTENT_DEPS)
+  include(${RKO_LIO_CMAKE_DIR}/dependencies/tsl_robin/tsl_robin.cmake)
+  include(${RKO_LIO_CMAKE_DIR}/dependencies/eigen/eigen.cmake)
+  include(${RKO_LIO_CMAKE_DIR}/dependencies/sophus/sophus.cmake)
+  include(${RKO_LIO_CMAKE_DIR}/dependencies/tbb/tbb.cmake)
+  include(${RKO_LIO_CMAKE_DIR}/dependencies/json/nlohmann_json.cmake)
 endif()
 
 if(RKO_LIO_BUILD_TESTS)
-  include(${CMAKE_CURRENT_LIST_DIR}/dependencies/catch2/catch2.cmake)
+  include(${RKO_LIO_CMAKE_DIR}/dependencies/catch2/catch2.cmake)
 endif()
+
+macro(rko_lio_ensure_package PACKAGE_NAME DEPENDENCY_CMAKE)
+  find_package(${PACKAGE_NAME} QUIET)
+  if(NOT ${PACKAGE_NAME}_FOUND)
+    message(STATUS "Fetching ${PACKAGE_NAME} via FetchContent")
+    include(${RKO_LIO_CMAKE_DIR}/dependencies/${DEPENDENCY_CMAKE})
+    find_package(${PACKAGE_NAME} REQUIRED)
+  endif()
+endmacro()

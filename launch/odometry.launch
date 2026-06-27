@@ -1,0 +1,61 @@
+<launch>
+  <!-- Arguments -->
+  <arg name="config_file" default="$(find rko_lio)/config/ros_default.yaml"
+       doc="YAML config; launch args below override values from this file" />
+  <arg name="mode" default="online" doc="online, online_imu_rate, or offline" />
+  <arg name="bag_path" default="" doc="Path to rosbag file (offline mode only)" />
+  <arg name="rviz" default="true" />
+
+  <!-- Required sensor / frame params (override config_file when non-empty) -->
+  <arg name="imu_topic" default="" />
+  <arg name="lidar_topic" default="" />
+  <arg name="base_frame" default="" />
+  <arg name="imu_frame" default="" />
+  <arg name="lidar_frame" default="" />
+  <!-- Optional output params (empty string = use config_file value) -->
+  <arg name="publish_twist_stamped" default="" doc="true to enable TwistWithCovarianceStamped output" />
+
+  <!-- Online node (threaded, async registration) -->
+  <group if="$(eval mode == 'online')">
+    <node pkg="rko_lio" type="online_node" name="rko_lio" output="screen">
+      <rosparam command="load" file="$(arg config_file)" subst_value="true" />
+      <param if="$(eval imu_topic != '')" name="imu_topic" value="$(arg imu_topic)" />
+      <param if="$(eval lidar_topic != '')" name="lidar_topic" value="$(arg lidar_topic)" />
+      <param if="$(eval base_frame != '')" name="base_frame" value="$(arg base_frame)" />
+      <param if="$(eval imu_frame != '')" name="imu_frame" value="$(arg imu_frame)" />
+      <param if="$(eval lidar_frame != '')" name="lidar_frame" value="$(arg lidar_frame)" />
+      <param if="$(eval publish_twist_stamped != '')" name="publish_twist_stamped" value="$(arg publish_twist_stamped)" />
+    </node>
+  </group>
+
+  <!-- Online IMU-rate node (sequential, publishes odom at IMU rate) -->
+  <group if="$(eval mode == 'online_imu_rate')">
+    <node pkg="rko_lio" type="online_imu_rate_node" name="rko_lio" output="screen">
+      <rosparam command="load" file="$(arg config_file)" subst_value="true" />
+      <param if="$(eval imu_topic != '')" name="imu_topic" value="$(arg imu_topic)" />
+      <param if="$(eval lidar_topic != '')" name="lidar_topic" value="$(arg lidar_topic)" />
+      <param if="$(eval base_frame != '')" name="base_frame" value="$(arg base_frame)" />
+      <param if="$(eval imu_frame != '')" name="imu_frame" value="$(arg imu_frame)" />
+      <param if="$(eval lidar_frame != '')" name="lidar_frame" value="$(arg lidar_frame)" />
+      <param if="$(eval publish_twist_stamped != '')" name="publish_twist_stamped" value="$(arg publish_twist_stamped)" />
+    </node>
+  </group>
+
+  <!-- Offline node (reads from rosbag) -->
+  <group if="$(eval mode == 'offline')">
+    <node pkg="rko_lio" type="offline_node" name="rko_lio" output="screen">
+      <rosparam command="load" file="$(arg config_file)" subst_value="true" />
+      <param if="$(eval imu_topic != '')" name="imu_topic" value="$(arg imu_topic)" />
+      <param if="$(eval lidar_topic != '')" name="lidar_topic" value="$(arg lidar_topic)" />
+      <param if="$(eval base_frame != '')" name="base_frame" value="$(arg base_frame)" />
+      <param if="$(eval imu_frame != '')" name="imu_frame" value="$(arg imu_frame)" />
+      <param if="$(eval lidar_frame != '')" name="lidar_frame" value="$(arg lidar_frame)" />
+      <param if="$(eval bag_path != '')" name="bag_path" value="$(arg bag_path)" />
+      <param if="$(eval publish_twist_stamped != '')" name="publish_twist_stamped" value="$(arg publish_twist_stamped)" />
+    </node>
+  </group>
+
+  <!-- RViz -->
+  <node pkg="rviz" type="rviz" name="rviz" if="$(arg rviz)"
+        args="-d $(find rko_lio)/config/default.rviz" />
+</launch>

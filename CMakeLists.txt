@@ -20,96 +20,64 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-cmake_minimum_required(VERSION 3.22.0)
+cmake_minimum_required(VERSION 3.16)
 project(rko_lio LANGUAGES CXX C)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(POLICY CMP0135)
   cmake_policy(SET CMP0135 NEW)
 endif()
 
-option(RKO_LIO_BUILD_ROS "Build the ROS wrapper for RKO LIO" ON)
-option(RKO_LIO_BUILD_TESTS "Build core C++ tests" OFF)
-option(RKO_LIO_FETCH_CONTENT_DEPS
-       "Fetch dependencies via FetchContent instead of using find_package" OFF)
-
 include(cmake/dependencies.cmake)
 include(cmake/compat_target_sources.cmake)
 
-find_package(Eigen3 3.4 REQUIRED CONFIG)
-find_package(Sophus REQUIRED CONFIG)
-find_package(TBB REQUIRED CONFIG)
-find_package(tsl-robin-map REQUIRED CONFIG)
+find_package(catkin REQUIRED COMPONENTS
+  roscpp
+  std_msgs
+  sensor_msgs
+  nav_msgs
+  geometry_msgs
+  tf2
+  tf2_ros
+  tf2_msgs
+  rosbag
+)
+
+find_package(Eigen3 3.4 REQUIRED)
+find_package(TBB REQUIRED)
+
+rko_lio_ensure_package(Sophus sophus/sophus.cmake)
+rko_lio_ensure_package(tsl-robin-map tsl_robin/tsl_robin.cmake)
+rko_lio_ensure_package(nlohmann_json json/nlohmann_json.cmake)
+
+catkin_package(
+  INCLUDE_DIRS rko_lio
+  LIBRARIES rko_lio_core rko_lio_ros_utils rko_lio_ros
+  CATKIN_DEPENDS roscpp std_msgs sensor_msgs nav_msgs geometry_msgs tf2 tf2_ros tf2_msgs rosbag
+)
+
+include_directories(
+  ${catkin_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
 
 add_subdirectory(rko_lio/core)
+add_subdirectory(rko_lio/ros)
 
-if(NOT RKO_LIO_BUILD_ROS)
-  message(STATUS "RKO_LIO_BUILD_ROS is OFF. Skipping ROS Build.")
-else()
-  message(STATUS "Building RKO_LIO ROS wrapper.")
+install(TARGETS rko_lio_core rko_lio_ros_utils rko_lio_ros
+        online_node online_imu_rate_node offline_node
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
 
-  find_package(nlohmann_json REQUIRED CONFIG)
+install(DIRECTORY config/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/config
+)
 
-  find_package(ament_cmake REQUIRED)
-  find_package(rclcpp REQUIRED CONFIG)
-  find_package(std_msgs REQUIRED CONFIG)
-  find_package(tf2 REQUIRED CONFIG)
-  find_package(tf2_ros REQUIRED CONFIG)
-  find_package(sensor_msgs REQUIRED CONFIG)
-  find_package(nav_msgs REQUIRED CONFIG)
-  find_package(geometry_msgs REQUIRED CONFIG)
-  find_package(rosbag2_cpp REQUIRED CONFIG)
-  find_package(rosbag2_storage REQUIRED CONFIG)
-  find_package(rclcpp_components REQUIRED CONFIG)
-
-  add_subdirectory(rko_lio/ros)
-
-  # ament macros cannot be in a CMake subdirectory, even rclcpp
-  rclcpp_components_register_node(
-    online_node_component
-    PLUGIN
-    "rko_lio::ros::OnlineNode"
-    EXECUTABLE
-    online_node)
-
-  rclcpp_components_register_node(
-    online_imu_rate_node_component
-    PLUGIN
-    "rko_lio::ros::OnlineImuRateNode"
-    EXECUTABLE
-    online_imu_rate_node)
-
-  if(NOT RKO_LIO_FETCH_CONTENT_DEPS AND CMAKE_VERSION VERSION_GREATER_EQUAL "3.23")
-    install(
-      TARGETS rko_lio.core rko_lio.ros rko_lio.ros.utils
-      EXPORT rko_lioTargets
-      FILE_SET HEADERS)
-
-    ament_export_targets(rko_lioTargets HAS_LIBRARY_TARGET)
-    ament_export_dependencies(
-      Eigen3
-      Sophus
-      tsl-robin-map
-      rclcpp
-      std_msgs
-      tf2
-      tf2_ros
-      sensor_msgs
-      nav_msgs
-      geometry_msgs
-      rosbag2_cpp
-      rosbag2_storage)
-  endif()
-
-  install(TARGETS online_node_component online_imu_rate_node_component offline_node
-          LIBRARY DESTINATION lib
-          RUNTIME DESTINATION lib/${PROJECT_NAME})
-
-  install(DIRECTORY config launch DESTINATION share/rko_lio)
-
-  ament_package()
-endif()
-
-if(RKO_LIO_BUILD_TESTS)
-  enable_testing()
-  add_subdirectory(tests/core)
-endif()
+install(DIRECTORY launch/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
+)

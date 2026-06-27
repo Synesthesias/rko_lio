@@ -20,61 +20,42 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# library: rko_lio::ros::utils
+# library: rko_lio_ros_utils
 add_subdirectory(utils)
 
-# library: rko_lio::ros
-add_library(rko_lio.ros STATIC)
-add_library(rko_lio::ros ALIAS rko_lio.ros)
+# library: rko_lio_ros
+add_library(rko_lio_ros STATIC
+  base_node.cpp
+  threaded_node.cpp
+)
 
-compat_target_sources(
-  rko_lio.ros
-  PRIVATE base_node.cpp threaded_node.cpp
-  PUBLIC
-  FILE_SET
-  HEADERS
-  FILES ../../rko_lio/ros/base_node.hpp ../../rko_lio/ros/threaded_node.hpp
-  BASE_DIRS ../..)
+target_include_directories(rko_lio_ros PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/../..
+  ${catkin_INCLUDE_DIRS}
+)
 
-target_link_libraries(
-  rko_lio.ros
+target_link_libraries(rko_lio_ros
   PRIVATE nlohmann_json::nlohmann_json
-  PUBLIC rko_lio::ros::utils
-         # ros deps
-         ${geometry_msgs_TARGETS}
-         ${nav_msgs_TARGETS}
-         ${sensor_msgs_TARGETS}
-         ${std_msgs_TARGETS}
-         rclcpp::rclcpp
-         sensor_msgs::sensor_msgs_library
-         tf2::tf2
-         tf2_ros::static_transform_broadcaster_node
-         tf2_ros::tf2_ros
-         # ros deps end
-         rko_lio::core
-         Sophus::Sophus
-         Eigen3::Eigen)
+  PUBLIC
+    rko_lio_ros_utils
+    rko_lio_core
+    ${catkin_LIBRARIES}
+    Sophus::Sophus
+    Eigen3::Eigen
+)
 
-set_target_properties(rko_lio.ros PROPERTIES POSITION_INDEPENDENT_CODE ON
-                                              EXPORT_NAME ros)
+target_compile_features(rko_lio_ros PUBLIC cxx_std_20)
+
+set_target_properties(rko_lio_ros PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# executable: online_node
+add_executable(online_node online_node.cpp)
+target_link_libraries(online_node PRIVATE rko_lio_ros)
+
+# executable: online_imu_rate_node
+add_executable(online_imu_rate_node online_imu_rate_node.cpp)
+target_link_libraries(online_imu_rate_node PRIVATE rko_lio_ros)
 
 # executable: offline_node
 add_executable(offline_node offline_node.cpp)
-target_link_libraries(offline_node PRIVATE rko_lio::ros)
-set_target_properties(offline_node PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
-# component: online_node_component
-add_library(online_node_component SHARED online_node.cpp)
-target_link_libraries(
-  online_node_component
-  PRIVATE rko_lio::ros
-          # ros deps
-          rclcpp_components::component rclcpp_components::component_manager)
-
-# component: online_imu_rate_node_component
-add_library(online_imu_rate_node_component SHARED online_imu_rate_node.cpp)
-target_link_libraries(
-  online_imu_rate_node_component
-  PRIVATE rko_lio::ros
-          # ros deps
-          rclcpp_components::component rclcpp_components::component_manager)
+target_link_libraries(offline_node PRIVATE rko_lio_ros)

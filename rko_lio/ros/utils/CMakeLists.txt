@@ -20,35 +20,24 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-add_library(rko_lio.ros.utils STATIC)
-add_library(rko_lio::ros::utils ALIAS rko_lio.ros.utils)
-compat_target_sources(
-  rko_lio.ros.utils
-  PRIVATE point_cloud_read.cpp point_cloud_write.cpp rosbag.cpp
+add_library(rko_lio_ros_utils STATIC
+  point_cloud_read.cpp
+  point_cloud_write.cpp
+  rosbag.cpp
+)
+
+target_include_directories(rko_lio_ros_utils PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../..
+  ${catkin_INCLUDE_DIRS}
+)
+
+target_link_libraries(rko_lio_ros_utils
   PUBLIC
-  FILE_SET
-  HEADERS
-  FILES ../../../rko_lio/ros/utils/point_cloud_read.hpp
-        ../../../rko_lio/ros/utils/point_cloud_write.hpp
-        ../../../rko_lio/ros/utils/ros_vectors.hpp
-        ../../../rko_lio/ros/utils/rosbag.hpp
-        ../../../rko_lio/ros/utils/time.hpp
-        ../../../rko_lio/ros/utils/transforms.hpp
-        ../../../rko_lio/ros/utils/utils.hpp
-  BASE_DIRS ../../..)
-target_link_libraries(
-  rko_lio.ros.utils
-  PUBLIC # ros deps
-         ${sensor_msgs_TARGETS}
-         rclcpp::rclcpp
-         rosbag2_cpp::rosbag2_cpp
-         rosbag2_storage::rosbag2_storage
-         sensor_msgs::sensor_msgs_library
-         tf2::tf2
-         tf2_ros::static_transform_broadcaster_node
-         tf2_ros::tf2_ros
-         # ros deps end
-         Sophus::Sophus
-         Eigen3::Eigen)
-set_target_properties(rko_lio.ros.utils PROPERTIES POSITION_INDEPENDENT_CODE ON
-                                                    EXPORT_NAME ros::utils)
+    ${catkin_LIBRARIES}
+    Sophus::Sophus
+    Eigen3::Eigen
+)
+
+target_compile_features(rko_lio_ros_utils PUBLIC cxx_std_20)
+
+set_target_properties(rko_lio_ros_utils PROPERTIES POSITION_INDEPENDENT_CODE ON)

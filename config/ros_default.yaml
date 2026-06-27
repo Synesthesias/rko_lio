@@ -3,23 +3,30 @@
 # to use this config with the launch file, you will still have to pass it with
 # `config_file:=<full_or_relative_path_to>/ros_default.yaml`
 # #############################################################################
-# base_frame: base
-# imu_topic: /imu
-# imu_frame: <leave empty if tf is well defined>
-# lidar_topic: /lidar
-# lidar_frame: <leave empty if tf is well defined>
+base_frame: base_link
+imu_topic: /sensing/ins/imu
+imu_frame: imu
+lidar_topic: /sensing/pandar
+lidar_frame: pandar
 # extrinsic_lidar2base_quat_xyzw_xyz: [qxyzw_xyz as a list, unnecessary if tf is well defined]
 # extrinsic_imu2base_quat_xyzw_xyz: [qxyzw_xyz as a list, unnecessary if tf is well defined]
 odom_topic: /rko_lio/odom
 odom_frame: odom
 invert_odom_tf: false
-publish_local_map: true
+publish_local_map: false
 map_topic: /rko_lio/local_map
-publish_deskewed_scan: true
+publish_deskewed_scan: false
 odom_at_imu_rate: false
+# TwistWithCovarianceStamped output (for EKF integration)
+# set publish_twist_stamped: true to enable /rko_lio/twist
+publish_twist_stamped: false
+twist_topic: /rko_lio/twist
+twist_linear_covariance: 0.1   # m/s variance; tune relative to NDT / GNSS covariance
+twist_angular_covariance: 0.01  # rad/s variance
 # IMU-rate seq pipeline (used when launched with odom_at_imu_rate:=true and mode:=online):
-# seq.odom_at_imu_rate_topic: rko_lio/odom_at_imu_rate
-# seq.tf_at_imu_rate: false
+# seq:
+#   odom_at_imu_rate_topic: rko_lio/odom_at_imu_rate
+#   tf_at_imu_rate: false
 
 # lio config
 deskew: true
@@ -35,6 +42,9 @@ double_downsample: true
 max_expected_jerk: 3.0
 min_beta: 200.0
 # Lidar per-point timestamp processing - set when the heuristic fails.
-# lidar_timestamps.multiplier_to_seconds: 0.0   # 0.0 = autodetect; e.g. 1e-6 for microseconds
-# lidar_timestamps.force_absolute: false
-# lidar_timestamps.force_relative: false
+# In ROS1, these are loaded as nested YAML which maps to parameter names
+# like "lidar_timestamps/multiplier_to_seconds" via rosparam.
+# lidar_timestamps:
+#   multiplier_to_seconds: 0.0   # 0.0 = autodetect; e.g. 1e-6 for microseconds
+#   force_absolute: false
+#   force_relative: false

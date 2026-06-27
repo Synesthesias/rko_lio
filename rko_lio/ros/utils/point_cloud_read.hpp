@@ -26,12 +26,12 @@
 #include <Eigen/Core>
 #include <sophus/se3.hpp>
 // ros
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <sensor_msgs/point_cloud2_iterator.hpp>
+#include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/point_cloud2_iterator.h>
 
 namespace rko_lio::ros::utils {
-std::vector<Eigen::Vector3d> point_cloud2_to_eigen(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& msg);
+std::vector<Eigen::Vector3d> point_cloud2_to_eigen(const sensor_msgs::PointCloud2::ConstPtr& msg);
 
 std::tuple<std::vector<Eigen::Vector3d>, std::vector<double>>
-point_cloud2_to_eigen_with_timestamps(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& msg);
+point_cloud2_to_eigen_with_timestamps(const sensor_msgs::PointCloud2::ConstPtr& msg);
 }; // namespace rko_lio::ros::utils

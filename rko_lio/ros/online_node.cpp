@@ -28,8 +28,8 @@
 namespace rko_lio::ros {
 class OnlineNode : public ThreadedNode {
 public:
-  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
-  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr lidar_sub;
+  ::ros::Subscriber imu_sub;
+  ::ros::Subscriber lidar_sub;
   rko_lio::core::Timer timer;
 
   OnlineNode(const OnlineNode&) = delete;
@@ -37,24 +37,21 @@ public:
   OnlineNode& operator=(const OnlineNode&) = delete;
   OnlineNode& operator=(OnlineNode&&) = delete;
 
-  explicit OnlineNode(const rclcpp::NodeOptions& options)
-      : ThreadedNode("rko_lio_online_node", options), timer("RKO LIO Online Node") {
-    const auto qos_imu = rclcpp::SensorDataQoS().keep_last(100);
-    const auto qos_lidar = rclcpp::SensorDataQoS().keep_last(10);
+  OnlineNode() : ThreadedNode("rko_lio_online_node"), timer("RKO LIO Online Node") {
+    imu_sub = nh.subscribe<sensor_msgs::Imu>(
+        imu_topic, 100, [this](const sensor_msgs::Imu::ConstPtr& msg) { imu_callback(msg); });
 
-    imu_sub = node->create_subscription<sensor_msgs::msg::Imu>(
-        imu_topic, qos_imu, [this](const sensor_msgs::msg::Imu::ConstSharedPtr& imu_msg) { imu_callback(imu_msg); });
-
-    lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
-        lidar_topic, qos_lidar,
-        [this](const sensor_msgs::msg::PointCloud2::ConstSharedPtr& lidar_msg) { lidar_callback(lidar_msg); });
-  }
-
-  rclcpp::node_interfaces::NodeBaseInterface::SharedPtr get_node_base_interface() {
-    return node->get_node_base_interface();
+    lidar_sub = nh.subscribe<sensor_msgs::PointCloud2>(
+        lidar_topic, 10, [this](const sensor_msgs::PointCloud2::ConstPtr& msg) { lidar_callback(msg); });
   }
 };
 } // namespace rko_lio::ros
 
-#include <rclcpp_components/register_node_macro.hpp>
-RCLCPP_COMPONENTS_REGISTER_NODE(rko_lio::ros::OnlineNode)
+int main(int argc, char** argv) {
+  ::ros::init(argc, argv, "rko_lio_online_node");
+  rko_lio::ros::OnlineNode node;
+  ::ros::AsyncSpinner spinner(2);
+  spinner.start();
+  ::ros::waitForShutdown();
+  return 0;
+}

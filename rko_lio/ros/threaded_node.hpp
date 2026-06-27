@@ -31,8 +31,8 @@
 #include <queue>
 #include <thread>
 // ros
-#include <sensor_msgs/msg/imu.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/Imu.h>
+#include <sensor_msgs/PointCloud2.h>
 
 namespace rko_lio::ros {
 
@@ -43,7 +43,7 @@ struct LidarFrame {
 
 class ThreadedNode : public BaseNode {
 public:
-  std::jthread registration_thread;
+  std::thread registration_thread;
   std::mutex buffer_mutex;
   std::condition_variable sync_condition_variable;
   std::atomic<bool> atomic_can_process = false;
@@ -53,10 +53,10 @@ public:
   size_t max_lidar_buffer_size = 50;
 
   ThreadedNode() = delete;
-  ThreadedNode(const std::string& node_name, const rclcpp::NodeOptions& options);
+  explicit ThreadedNode(const std::string& node_name);
 
-  void imu_callback(const sensor_msgs::msg::Imu::ConstSharedPtr& imu_msg);
-  void lidar_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& lidar_msg);
+  void imu_callback(const sensor_msgs::Imu::ConstPtr& imu_msg);
+  void lidar_callback(const sensor_msgs::PointCloud2::ConstPtr& lidar_msg);
   void registration_loop();
 
   ~ThreadedNode();

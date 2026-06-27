@@ -23,20 +23,17 @@
  */
 
 #pragma once
-#include <builtin_interfaces/msg/time.hpp>
 #include <chrono>
-#include <rclcpp/time.hpp>
+#include <ros/time.h>
 
 namespace rko_lio::ros::utils {
-inline std::chrono::nanoseconds to_ns(const builtin_interfaces::msg::Time& stamp) {
-  return std::chrono::nanoseconds(rclcpp::Time(stamp).nanoseconds());
+inline std::chrono::nanoseconds to_ns(const ::ros::Time& stamp) {
+  return std::chrono::nanoseconds(stamp.toNSec());
 }
 
-inline std::chrono::nanoseconds to_ns(const rclcpp::Time& time) {
-  return std::chrono::nanoseconds(time.nanoseconds());
-}
-
-inline builtin_interfaces::msg::Time to_ros_time(std::chrono::nanoseconds time) {
-  return rclcpp::Time(time.count());
+inline ::ros::Time to_ros_time(std::chrono::nanoseconds time) {
+  ::ros::Time t;
+  t.fromNSec(static_cast<uint64_t>(time.count()));
+  return t;
 }
 } // namespace rko_lio::ros::utils
